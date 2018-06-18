@@ -1,93 +1,45 @@
-var express = require('express');
-var passport = require('passport');
-var Strategy = require('passport-local').Strategy;
-var db = require('./db');
+const express = require('express');
+const nunjucks = require('nunjucks');
+const mongoose = require('mongoose')
+const passport = require('passport');
+const bodyParser = require('body-parser')
+const cookieParser = require('cookie-parser')
+const { Strategy } = require('passport-jwt');
+const keys = require('./keys')
 
+mongoose.connect(keys.mongoURI)
+  .then(() => console.log('mongoDB connected'))
+  .catch(err => console.error(err))
+// debug mongoDB query
+mongoose.set('debug', true)
 
-// Configure the local strategy for use by Passport.
-//
-// The local strategy require a `verify` function which receives the credentials
-// (`username` and `password`) submitted by the user.  The function must verify
-// that the password is correct and then invoke `cb` with a user object, which
-// will be set at `req.user` in route handlers after authentication.
-passport.use(new Strategy(
-  function(username, password, cb) {
-    db.users.findByUsername(username, function(err, user) {
-      if (err) { return cb(err); }
-      if (!user) { return cb(null, false); }
-      if (user.password != password) { return cb(null, false); }
-      return cb(null, user);
-    });
-  }));
+const {jwt} = require('./config')
 
-
-// Configure Passport authenticated session persistence.
-//
-// In order to restore authentication state across HTTP requests, Passport needs
-// to serialize users into and deserialize users out of the session.  The
-// typical implementation of this is as simple as supplying the user ID when
-// serializing, and querying the user record by ID from the database when
-// deserializing.
-passport.serializeUser(function(user, cb) {
-  cb(null, user.id);
-});
-
-passport.deserializeUser(function(id, cb) {
-  db.users.findById(id, function (err, user) {
-    if (err) { return cb(err); }
-    cb(null, user);
-  });
-});
-
-
-
+passport.use(new Strategy(jwt, function (jwt_payload, done) {
+  if (jwt_payload != void (0)) return done(false, jwt_payload)
+  done()
+}))
 
 // Create a new Express application.
 var app = express();
 
 // Configure view engine to render EJS templates.
-app.set('views', __dirname + '/views');
-app.set('view engine', 'ejs');
+// app.set('views', __dirname + '/views');
+// app.set('view engine', 'ejs');
+// Configure view engine to render nunjucks templates.
+nunjucks.configure('client/views', {
+  autoescape: true,
+  express: app
+});
 
-// Use application-level middleware for common functionality, including
-// logging, parsing, and session handling.
-app.use(require('morgan')('combined'));
-app.use(require('cookie-parser')());
-app.use(require('body-parser').urlencoded({ extended: true }));
-app.use(require('express-session')({ secret: 'keyboard cat', resave: false, saveUninitialized: false }));
+app.use(cookieParser());
+// parse application/x-www-from-url-urlencoded
+app.use(bodyParser.urlencoded({ extended: false }));
+// parse application/json
+app.use(bodyParser.json())
 
-// Initialize Passport and restore authentication state, if any, from the
-// session.
-app.use(passport.initialize());
-app.use(passport.session());
+require('./routes/router')(app)
 
-// Define routes.
-app.get('/',
-  function(req, res) {
-    res.render('home', { user: req.user });
-  });
-
-app.get('/login',
-  function(req, res){
-    res.render('login');
-  });
-  
-app.post('/login', 
-  passport.authenticate('local', { failureRedirect: '/login' }),
-  function(req, res) {
-    res.redirect('/');
-  });
-  
-app.get('/logout',
-  function(req, res){
-    req.logout();
-    res.redirect('/');
-  });
-
-app.get('/profile',
-  require('connect-ensure-login').ensureLoggedIn(),
-  function(req, res){
-    res.render('profile', { user: req.user });
-  });
-
-app.listen(3000);
+app.listen(3000, () => {
+  console.log('Server started on port 3000');
+})
